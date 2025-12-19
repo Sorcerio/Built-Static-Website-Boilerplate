@@ -1,1 +1,12 @@
 # Static Website Builder Configuration
+[build]
+sourceDirectory = "./content/"
+templateDirectory = "./templates/"
+outputDirectory = "./static/"
+blacklist = [
+    ".",
+    "..",
+    "__pycache__",
+    ".DS_Store",
+    "Thumbs.db"
+]
