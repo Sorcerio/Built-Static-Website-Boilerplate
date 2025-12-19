@@ -19,7 +19,7 @@
             <h3>{{ item.title }}</h3>
             <details>
                 <summary><a href="{{ item.filePath }}" target="_blank">{{ item.filePath }}</a></summary>
-                <pre style="text-wrap: auto;">{{ item.content }}</pre>
+                <pre style="text-wrap: auto;">{{ item.content|e }}</pre>
             </details>
         </div>
         {% endfor %}
