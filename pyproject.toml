@@ -4,4 +4,7 @@ version = "0.1.0"
 description = "Tools for building templated website layouts into a static website using Python."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "jinja2>=3.1.6",
+    "tqdm>=4.67.1",
+]
