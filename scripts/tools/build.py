@@ -33,10 +33,16 @@ class BuildTool(BaseTool):
         sourceDir: Path,
         templateDir: Path,
         outputDir: Path,
-        copyBlacklist: tuple[str, ...]
+        copyBlacklist: tuple[str, ...],
+        socialLinks: dict[str, str] = {}
     ):
         """
-        Initializes the build tool.
+        rootUrl: The root URL of the site like `"https://example.com"`.
+        sourceDir: The directory containing the source content files.
+        templateDir: The directory containing the template files.
+        outputDir: The directory to output the built site to.
+        copyBlacklist: A tuple of file or directory names to exclude from copying.
+        socialLinks: A dictionary of social media links to include in the site like `{"substack": "https://mbmcloude.substack.com"}`.
         """
         # Setup
         super().__init__()
@@ -47,6 +53,7 @@ class BuildTool(BaseTool):
         self.templateDir = templateDir.absolute()
         self.outputDir = outputDir.absolute()
         self.copyBlacklist = copyBlacklist
+        self.socialLinks = socialLinks
 
         # Make output directory
         self.outputDir.mkdir(parents=True, exist_ok=True)
@@ -131,10 +138,10 @@ class BuildTool(BaseTool):
         for contentFile in tqdm(tuple(self.sourceDir.glob("*.html")), desc="Rendering content", unit="file"):
             # Build the payload
             payload = {
+                **self.socialLinks,
                 "rootUrl": self.rootUrl,
                 "pagePath": str(contentFile.relative_to(self.sourceDir)),
-                "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S"),
-                # **self.socialLinks.dict() # TODO: Reimplement social links support
+                "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S")
             }
 
             # Get the template

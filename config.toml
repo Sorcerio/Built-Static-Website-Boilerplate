@@ -11,3 +11,14 @@ blacklist = [
     ".DS_Store",
     "Thumbs.db"
 ]
+
+[socialMedia]
+# Add any `key:value` pairs for social media links here.
+# The link `values` will be available in all templates by the `key` value.
+# For example, `substack = "https://mbmcloude.substack.com"` can be accessed in templates with `{{ substack }}`.
+twitter = ""
+facebook = ""
+instagram = ""
+linkedin = ""
+youtube = ""
+substack = ""
