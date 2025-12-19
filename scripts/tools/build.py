@@ -135,6 +135,32 @@ class BuildTool(BaseTool):
         self.outputDir.mkdir(parents=True, exist_ok=True)
 
     def build(self):
+        """
+        Builds the static site by rendering templates with content.
+        """
+        # Prepare the Jinja2 environment
+        env = self.prepJinjaEnv()
+
+        # Build HTML files
+        self.buildHtmlFiles(env)
+
+        # Copy static assets
+        self.copyStaticAssets()
+
+        # Update the site.webmanifest
+        self.updateSiteWebManifest()
+
+        # TODO: Generate sitemap.xml
+
+        # Final report
+        print(f"Built to: {self.outputDir}")
+
+    def prepJinjaEnv(self) -> jinja2.Environment:
+        """
+        Prepares and returns a Jinja2 environment for template rendering.
+
+        Returns a Jinja2 environment.
+        """
         # Load the template environment
         env = jinja2.Environment(
             loader=jinja2.FileSystemLoader((
@@ -147,6 +173,14 @@ class BuildTool(BaseTool):
         # Report
         print("Templates registered.")
 
+        return env
+
+    def buildHtmlFiles(self, env: jinja2.Environment):
+        """
+        Builds HTML files from templates in the given Jinja2 `env`.
+
+        env: The Jinja2 environment containing the templates.
+        """
         # Render the content to output
         for contentFile in tqdm(tuple(self.sourceDir.glob("*.html")), desc="Rendering content", unit="file"):
             # Build the payload
@@ -180,6 +214,10 @@ class BuildTool(BaseTool):
         # Report
         print("Content rendered.")
 
+    def copyStaticAssets(self):
+        """
+        Copies static asset files from the source directory to the output directory, excluding any files or directories in the blacklist.
+        """
         # Copy other files to output
         for otherPath in tqdm(tuple(self.sourceDir.glob("*")), desc="Copying other files", unit="file"):
             # Skip exclusions
@@ -195,6 +233,10 @@ class BuildTool(BaseTool):
         # Report
         print("Static files copied.")
 
+    def updateSiteWebManifest(self):
+        """
+        Updates the `site.webmanifest` file in the output directory.
+        """
         # Update the site.webmanifest
         manifestPath = (self.outputDir / "images" / "favicon" / "site.webmanifest").absolute()
         if manifestPath.exists():
@@ -215,8 +257,3 @@ class BuildTool(BaseTool):
         else:
             # Report
             print("No `site.webmanifest` exists. Skipping update.")
-
-        # TODO: Generate sitemap.xml
-
-        # Final report
-        print(f"Built to: {self.outputDir}")
