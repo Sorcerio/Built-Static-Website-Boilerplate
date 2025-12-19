@@ -16,6 +16,12 @@ blacklist = [
     "Thumbs.db"
 ]
 
+[attributions] # Container of sub-sections of licenses and legal documents.
+[attributions.example] # A document section with a unique key.
+category = "Examples" # Category name for grouping the documents like "Fonts", "Privacy Policies", etc.
+title = "Example License"
+file = "ExampleLicense.md" # Path of the license file or the name of the file in the `./content/attributions/` directory.
+
 [socialMedia] # Optional
 # Add any `key:value` pairs for social media links here.
 # The link `values` will be available in all templates by the `key` value.

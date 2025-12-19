@@ -19,6 +19,7 @@ from tqdm import tqdm
 
 from .baseTool import BaseTool
 from ..config import Config
+from ..models import AttrItem
 
 # MARK: - BuildTool
 class BuildTool(BaseTool):
@@ -37,7 +38,8 @@ class BuildTool(BaseTool):
         sourceDir: Path,
         templateDir: Path,
         outputDir: Path,
-        copyBlacklist: tuple[str, ...],
+        attributions: list[AttrItem] = [],
+        copyBlacklist: tuple[str, ...] = tuple(),
         socialLinks: dict[str, str] = {},
         overrides: dict[str, Any] = {}
     ):
@@ -48,6 +50,7 @@ class BuildTool(BaseTool):
         sourceDir: The directory containing the source content files.
         templateDir: The directory containing the template files.
         outputDir: The directory to output the built site to.
+        attributions: A list of `AttrItem` objects to include in the attributions page.
         copyBlacklist: A tuple of file or directory names to exclude from copying.
         socialLinks: A dictionary of social media links to include in the site like `{"substack": "https://mbmcloude.substack.com"}`.
         overrides: A dictionary of additional or override `key:value` pairs to include in the template rendering context. These will override any other values with the same key.
@@ -62,6 +65,7 @@ class BuildTool(BaseTool):
         self.sourceDir = sourceDir.absolute()
         self.templateDir = templateDir.absolute()
         self.outputDir = outputDir.absolute()
+        self.attributions = attributions
         self.copyBlacklist = copyBlacklist
         self.socialLinks = socialLinks
         self.overrides = overrides
@@ -98,13 +102,40 @@ class BuildTool(BaseTool):
 
         Returns an instance of this tool.
         """
+        # Pull the source directory
+        sourceDir = Path(config.get("build", "sourceDirectory")).absolute()
+
+        # Collect the attributions items
+        attrItems: list[AttrItem] = []
+        for data in config.getDict(None, "attributions", fallback={}).values():
+            # Resolve path
+            filePath = Path(data.get("file", None))
+
+            if filePath is None:
+                raise ValueError("Attributions item is missing required `file` property.")
+
+            if (not filePath.is_file()) and (filePath.parent == Path(".")):
+                filePath = (sourceDir / "attributions" / filePath).absolute()
+
+            if not filePath.is_file():
+                raise FileNotFoundError(f"Attributions item file does not exist at path: {filePath}")
+
+            # Build it
+            attrItems.append(AttrItem(
+                data.get("category", ""),
+                data.get("title", ""),
+                filePath
+            ))
+
+        # Send it
         return cls(
             name=config.get("site", "name"),
             nameShort=config.get("site", "nameShort"),
             rootUrl=config.get("site", "rootUrl"),
-            sourceDir=Path(config.get("build", "sourceDirectory")),
+            sourceDir=sourceDir,
             templateDir=Path(config.get("build", "templateDirectory")),
             outputDir=Path(config.get("build", "outputDirectory")),
+            attributions=attrItems,
             copyBlacklist=tuple(config.get("build", "blacklist")),
             socialLinks=config.getDict((str, ), "socialMedia", fallback={}),
             overrides=config.getDict(None, "overrides", fallback={})
@@ -139,23 +170,27 @@ class BuildTool(BaseTool):
         Builds the static site by rendering templates with content.
         """
         # Prepare the Jinja2 environment
-        env = self.prepJinjaEnv()
+        env = self._prepJinjaEnv()
 
         # Build HTML files
-        self.buildHtmlFiles(env)
+        self._buildHtmlFiles(env)
 
         # Copy static assets
-        self.copyStaticAssets()
+        self._copyStaticAssets()
 
         # Update the site.webmanifest
-        self.updateSiteWebManifest()
+        self._updateSiteWebManifest()
+
+        # Build the attributions page
+        self._buildAttributionsPage(env)
 
         # TODO: Generate sitemap.xml
 
         # Final report
         print(f"Built to: {self.outputDir}")
 
-    def prepJinjaEnv(self) -> jinja2.Environment:
+    # MARK: Internal Functions
+    def _prepJinjaEnv(self) -> jinja2.Environment:
         """
         Prepares and returns a Jinja2 environment for template rendering.
 
@@ -175,7 +210,28 @@ class BuildTool(BaseTool):
 
         return env
 
-    def buildHtmlFiles(self, env: jinja2.Environment):
+    def _getStandardJinjaPayload(self, contentFile: Path, relPath: Optional[Path] = None) -> dict[str, Any]:
+        """
+        Returns a standard payload dictionary for Jinja2 template rendering.
+
+        contentFile: The content file being rendered.
+        relPath: The relative path from the output directory to the content file. Provide `None` to attempt to auto-resolve.
+        """
+        # Resolve page path
+        pagePath = relPath
+        if pagePath is None:
+            pagePath = contentFile.relative_to(self.sourceDir)
+
+        # Build it
+        return {
+            **self.socialLinks,
+            "rootUrl": self.rootUrl,
+            "pagePath": str(pagePath),
+            "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S"),
+            **self.overrides # Overrides last to take precedence
+        }
+
+    def _buildHtmlFiles(self, env: jinja2.Environment):
         """
         Builds HTML files from templates in the given Jinja2 `env`.
 
@@ -184,13 +240,7 @@ class BuildTool(BaseTool):
         # Render the content to output
         for contentFile in tqdm(tuple(self.sourceDir.glob("*.html")), desc="Rendering content", unit="file"):
             # Build the payload
-            payload = {
-                **self.socialLinks,
-                "rootUrl": self.rootUrl,
-                "pagePath": str(contentFile.relative_to(self.sourceDir)),
-                "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S"),
-                **self.overrides # Overrides last to take precedence
-            }
+            payload = self._getStandardJinjaPayload(contentFile)
 
             # Get the template
             template = env.get_template(
@@ -214,7 +264,7 @@ class BuildTool(BaseTool):
         # Report
         print("Content rendered.")
 
-    def copyStaticAssets(self):
+    def _copyStaticAssets(self):
         """
         Copies static asset files from the source directory to the output directory, excluding any files or directories in the blacklist.
         """
@@ -233,7 +283,7 @@ class BuildTool(BaseTool):
         # Report
         print("Static files copied.")
 
-    def updateSiteWebManifest(self):
+    def _updateSiteWebManifest(self):
         """
         Updates the `site.webmanifest` file in the output directory.
         """
@@ -257,3 +307,52 @@ class BuildTool(BaseTool):
         else:
             # Report
             print("No `site.webmanifest` exists. Skipping update.")
+
+    def _buildAttributionsPage(self, env: jinja2.Environment):
+        """
+        Builds the attributions page.
+
+        env: The Jinja2 environment containing the templates.
+        """
+        # Prepare the path
+        attrsPath = self.outputDir / "attributions.html"
+
+        # Build the attributions list for payload
+        payloadAttrData: dict[str, list[dict[str, str]]] = {}
+        for item in self.attributions:
+            # Prep the item dict
+            itemDict = item.toDict()
+            itemDict["filePath"] = item.filePath.relative_to(self.sourceDir) # NOTE: Notice it's relative to sourceDir because that's where the `filePath` is pointing!
+
+            # Get the content
+            itemDict["content"] = item.filePath.read_text(encoding="utf-8")
+
+            # Add the category if needed
+            if item.category not in payloadAttrData:
+                payloadAttrData[item.category] = []
+
+            # Append the item
+            payloadAttrData[item.category].append(itemDict)
+
+        # Build the payload
+        payload = self._getStandardJinjaPayload(attrsPath, relPath=attrsPath.name)
+        payload["attributions"] = payloadAttrData
+
+        # Get the template
+        template = env.get_template(
+            name=attrsPath.name,
+            globals=payload
+        )
+
+        # Render the template with the content file
+        html = template.render()
+
+        # Write the rendered HTML to the output directory
+        with open(self.outputDir / attrsPath.name, "w") as f:
+            f.write(minify_html.minify(
+                html,
+                keep_closing_tags=True,
+                minify_css=True,
+                minify_js=True,
+                remove_processing_instructions=True
+            ))

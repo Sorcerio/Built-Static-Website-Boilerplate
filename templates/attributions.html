@@ -1,0 +1,27 @@
+{% extends "page.html" %}
+
+{% block title %}Attributions{% endblock %}
+
+{% block titleShort %}Attrs{% endblock %}
+
+{% block pageDesc %}Attributions for the site.{% endblock %}
+
+{% block bodyId %}attrs{% endblock %}
+
+{% block content -%}
+<h1>Attributions</h1>
+<div class="attributions-list">
+    {% for category, items in attributions.items() %}
+    <div class="attribution-category">
+        <h2>{{ category }}</h2>
+        {% for item in items %}
+        <div class="attribution-item">
+            <h3>{{ item.title }}</h3>
+            <p><a href="{{ item.filePath }}" target="_blank">{{ item.filePath }}</a></p>
+            <pre>{{ item.content }}</pre>
+        </div>
+        {% endfor %}
+    </div>
+    {% endfor %}
+</div>
+{%- endblock %}

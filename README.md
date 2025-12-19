@@ -20,6 +20,7 @@ Tool for building templated website layouts into a static website using Python.
 * [ ] Update the [favicons](./content/images/favicon/) using [RealFaviconGenerator](https://realfavicongenerator.net) with the `Favicon path` set to `images/favicon/`.
 * [ ] Update the [site.webmanifest](./content/images/favicon/site.webmanifest).
 * [ ] Update the [social media banner](./content/images/banner.png).
+* [ ] Add any legal attributions that are required in the [content directory](./content/legal/) and the [config](./config.toml).
 * [ ] Build the static website [as specified](#using-the-tools) for the first time.
 * [ ] (Optional) Remove this section and update README.
 
