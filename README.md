@@ -1,6 +1,6 @@
 # Static Website Template
 
-Tools for building templated website layouts into a static website using Python.
+Tool for building templated website layouts into a static website using Python.
 
 * [Static Website Template](#static-website-template)
     * [First Time Setup](#first-time-setup)
@@ -13,6 +13,7 @@ Tools for building templated website layouts into a static website using Python.
 > [!IMPORTANT]
 > These steps should be done *in order*.
 
+* [ ] Update the [license](./LICENSE.txt) with your identifier.
 * [ ] Update the [configuration](./config.toml).
 * [ ] Review the content of the primary [page template](./templates/page.html) and modify as required.
 * [ ] Review the content of the template [index page](./content/index.html) and modify as required.
