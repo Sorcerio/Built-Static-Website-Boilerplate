@@ -184,7 +184,8 @@ class BuildTool(BaseTool):
         # Build the attributions page
         self._buildAttributionsPage(env)
 
-        # TODO: Generate sitemap.xml
+        # Generate sitemap.xml
+        self._buildSitemap(env)
 
         # Final report
         print(f"Built to: {self.outputDir}")
@@ -221,12 +222,13 @@ class BuildTool(BaseTool):
         pagePath = relPath
         if pagePath is None:
             pagePath = contentFile.relative_to(self.sourceDir)
+        pagePath = Path(pagePath)
 
         # Build it
         return {
             **self.socialLinks,
             "rootUrl": self.rootUrl,
-            "pagePath": str(pagePath),
+            "pagePath": str(pagePath.as_posix()),
             "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S"),
             **self.overrides # Overrides last to take precedence
         }
@@ -322,7 +324,7 @@ class BuildTool(BaseTool):
         for item in self.attributions:
             # Prep the item dict
             itemDict = item.toDict()
-            itemDict["filePath"] = item.filePath.relative_to(self.sourceDir) # NOTE: Notice it's relative to sourceDir because that's where the `filePath` is pointing!
+            itemDict["filePath"] = item.filePath.relative_to(self.sourceDir).as_posix() # NOTE: Notice it's relative to sourceDir because that's where the `filePath` is pointing!
 
             # Get the content
             itemDict["content"] = item.filePath.read_text(encoding="utf-8")
@@ -356,3 +358,38 @@ class BuildTool(BaseTool):
                 minify_js=True,
                 remove_processing_instructions=True
             ))
+
+    def _buildSitemap(self, env: jinja2.Environment):
+        """
+        Generates the `sitemap.xml` file in the output directory.
+
+        env: The Jinja2 environment containing the templates.
+        """
+        # Prepare the path
+        sitemapPath = self.outputDir / "sitemap.xml"
+
+        # Get all the HTML files
+        htmlFiles = tuple(self.outputDir.glob("**/*.html"))
+
+        # Build the payload
+        payload = self._getStandardJinjaPayload(sitemapPath, relPath=sitemapPath.name)
+        payload["entries"] = [
+            {
+                "loc": f"{self.rootUrl}/{htmlFile.relative_to(self.outputDir).as_posix()}",
+                "lastmod": datetime.datetime.fromtimestamp(htmlFile.stat().st_mtime, datetime.timezone.utc).strftime("%Y-%m-%d")
+            }
+            for htmlFile in htmlFiles
+        ]
+
+        # Get the template
+        template = env.get_template(
+            name=sitemapPath.name,
+            globals=payload
+        )
+
+        # Render the template with the content file
+        xml = template.render()
+
+        # Write the rendered XML to the output directory
+        with open(self.outputDir / sitemapPath.name, "w") as f:
+            f.write(xml)
