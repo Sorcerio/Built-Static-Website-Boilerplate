@@ -1,6 +1,3 @@
-def main():
-    print("Hello from staticwebsitetemplate!")
-
-
+import scripts
 if __name__ == "__main__":
-    main()
+    scripts.cli()
