@@ -4,6 +4,7 @@ Build Tool
 Builds the static site by rendering templates with content.
 """
 # MARK: Imports
+import json
 import shutil
 import webbrowser
 import datetime
@@ -29,6 +30,8 @@ class BuildTool(BaseTool):
 
     # MARK: Initializer
     def __init__(self,
+        name: str,
+        nameShort: str,
         rootUrl: str,
         sourceDir: Path,
         templateDir: Path,
@@ -38,6 +41,8 @@ class BuildTool(BaseTool):
         overrides: dict[str, Any] = {}
     ):
         """
+        name: The name of the website as a whole like `"My Blog"`.
+        nameShort: A short name for the website like `"Blog"`.
         rootUrl: The root URL of the site like `"https://example.com"`.
         sourceDir: The directory containing the source content files.
         templateDir: The directory containing the template files.
@@ -50,6 +55,8 @@ class BuildTool(BaseTool):
         super().__init__()
 
         # Assign properties
+        self.name = name
+        self.nameShort = nameShort
         self.rootUrl = rootUrl.rstrip("/")
         self.sourceDir = sourceDir.absolute()
         self.templateDir = templateDir.absolute()
@@ -91,7 +98,9 @@ class BuildTool(BaseTool):
         Returns an instance of this tool.
         """
         return cls(
-            rootUrl=config.get("build", "rootUrl"),
+            name=config.get("site", "name"),
+            nameShort=config.get("site", "nameShort"),
+            rootUrl=config.get("site", "rootUrl"),
             sourceDir=Path(config.get("build", "sourceDirectory")),
             templateDir=Path(config.get("build", "templateDirectory")),
             outputDir=Path(config.get("build", "outputDirectory")),
@@ -137,8 +146,6 @@ class BuildTool(BaseTool):
         # Report
         print("Templates registered.")
 
-        # TODO: Update the `site.webmanifest` file
-
         # Render the content to output
         for contentFile in tqdm(tuple(self.sourceDir.glob("*.html")), desc="Rendering content", unit="file"):
             # Build the payload
@@ -180,4 +187,29 @@ class BuildTool(BaseTool):
 
         # Report
         print("Static files copied.")
+
+        # Update the site.webmanifest
+        manifestPath = (self.outputDir / "images" / "favicon" / "site.webmanifest").absolute()
+        if manifestPath.exists():
+            # Open the manifest
+            with open(manifestPath, "r") as f:
+                manifest = json.load(f)
+
+            # Update the manifest
+            manifest["name"] = self.name
+            manifest["short_name"] = self.nameShort
+
+            # Write the manifest back
+            with open(manifestPath, "w") as f:
+                json.dump(manifest, f, indent=2)
+
+            # Report
+            print("`site.webmanifest` updated.")
+        else:
+            # Report
+            print("No `site.webmanifest` exists. Skipping update.")
+
+        # TODO: Generate sitemap.xml
+
+        # Final report
         print(f"Built to: {self.outputDir}")

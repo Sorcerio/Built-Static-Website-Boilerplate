@@ -1,6 +1,10 @@
 # Static Website Builder Configuration
-[build]
+[site]
+name = "Example Website"
+nameShort = "ExWeb"
 rootUrl = "https://www.example.com"
+
+[build]
 sourceDirectory = "./content/"
 templateDirectory = "./templates/"
 outputDirectory = "./static/"
