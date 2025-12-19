@@ -6,5 +6,6 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "jinja2>=3.1.6",
+    "minify-html>=0.18.1",
     "tqdm>=4.67.1",
 ]

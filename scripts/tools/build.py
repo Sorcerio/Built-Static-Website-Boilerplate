@@ -14,6 +14,7 @@ from pathlib import Path
 from shutil import copytree, copy2
 
 import jinja2
+import minify_html
 from tqdm import tqdm
 
 from .baseTool import BaseTool
@@ -168,7 +169,13 @@ class BuildTool(BaseTool):
 
             # Write the rendered HTML to the output directory
             with open(self.outputDir / contentFile.name, "w") as f:
-                f.write(html) # TODO: Minify HTML and remove comments
+                f.write(minify_html.minify(
+                    html,
+                    keep_closing_tags=True,
+                    minify_css=True,
+                    minify_js=True,
+                    remove_processing_instructions=True
+                ))
 
         # Report
         print("Content rendered.")
