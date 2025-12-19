@@ -8,7 +8,7 @@ import shutil
 import webbrowser
 import datetime
 import argparse
-from typing import Optional
+from typing import Optional, Any
 from pathlib import Path
 from shutil import copytree, copy2
 
@@ -34,7 +34,8 @@ class BuildTool(BaseTool):
         templateDir: Path,
         outputDir: Path,
         copyBlacklist: tuple[str, ...],
-        socialLinks: dict[str, str] = {}
+        socialLinks: dict[str, str] = {},
+        overrides: dict[str, Any] = {}
     ):
         """
         rootUrl: The root URL of the site like `"https://example.com"`.
@@ -43,6 +44,7 @@ class BuildTool(BaseTool):
         outputDir: The directory to output the built site to.
         copyBlacklist: A tuple of file or directory names to exclude from copying.
         socialLinks: A dictionary of social media links to include in the site like `{"substack": "https://mbmcloude.substack.com"}`.
+        overrides: A dictionary of additional or override `key:value` pairs to include in the template rendering context. These will override any other values with the same key.
         """
         # Setup
         super().__init__()
@@ -54,6 +56,7 @@ class BuildTool(BaseTool):
         self.outputDir = outputDir.absolute()
         self.copyBlacklist = copyBlacklist
         self.socialLinks = socialLinks
+        self.overrides = overrides
 
         # Make output directory
         self.outputDir.mkdir(parents=True, exist_ok=True)
@@ -93,6 +96,8 @@ class BuildTool(BaseTool):
             templateDir=Path(config.get("build", "templateDirectory")),
             outputDir=Path(config.get("build", "outputDirectory")),
             copyBlacklist=tuple(config.get("build", "blacklist")),
+            socialLinks=config.getDict((str, ), "socialMedia", fallback={}),
+            overrides=config.getDict(None, "overrides", fallback={})
         )
 
     def _run(self, args: argparse.Namespace, config: Optional[Config]):
@@ -141,7 +146,8 @@ class BuildTool(BaseTool):
                 **self.socialLinks,
                 "rootUrl": self.rootUrl,
                 "pagePath": str(contentFile.relative_to(self.sourceDir)),
-                "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S")
+                "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S"),
+                **self.overrides # Overrides last to take precedence
             }
 
             # Get the template

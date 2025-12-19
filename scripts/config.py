@@ -5,7 +5,7 @@ Class to manage file-based configuration settings.
 """
 # MARK: Imports
 import tomllib
-from typing import Union, Optional, Any
+from typing import Union, Optional, Any, Type
 from pathlib import Path
 
 # MARK: Classes
@@ -43,7 +43,7 @@ class Config:
             return tomllib.load(f)
 
     # Functions
-    def get(self, *keys, fallback: Optional[Union[KeyError, Any]] = KeyError) -> Optional[Union[dict[str, Any], list[Any], Any]]:
+    def get(self, *keys, fallback: Optional[Union[KeyError, Any]] = KeyError) -> Union[dict[str, Any], list[Any], Any]:
         """
         Retrieve a value from the configuration using a sequence of `keys`.
 
@@ -70,4 +70,29 @@ class Config:
         # Return the found data
         return data
 
-    # NOTE: Set is not implemented because Python's `tomllib` does not support writing TOML files.
+    def getDict(self, types: Optional[tuple[Type, ...]], *keys, fallback: Optional[Union[KeyError, dict[str, Any]]] = KeyError) -> dict[str, Any]:
+        """
+        Retrieve a dictionary from the configuration using a sequence of `keys`.
+
+        types: A tuple of the types acceptable to be *values* in the dictionary. Provide `None` explicitly to skip type checking.
+        *keys: A sequence of keys to traverse the configuration dictionary.
+        fallback: Optional value to return if a key along the `*keys` sequence is not found. If the `KeyError` type is provided, a `KeyError` will be raised instead.
+
+        Returns the dictionary found at the specified `keys` or throws a `TypeError` if the value `types` do not match.
+        """
+        # Get the data
+        data = self.get(*keys, fallback=fallback)
+
+        # Check if it's a dictionary
+        if not isinstance(data, dict):
+            raise TypeError(f"Expected a dictionary at `{'.'.join(keys)}`, but found: {type(data)}")
+
+        # Validate the types of the values
+        if types is not None:
+            for key, value in data.items():
+                for t in types:
+                    if not isinstance(value, t):
+                        raise TypeError(f"Expected value of `{', '.join(t.__name__ for t in types)}` for key '{key}', but found: {type(value)}")
+
+        # Return the dictionary
+        return data
