@@ -29,6 +29,7 @@ class BuildTool(BaseTool):
 
     # MARK: Initializer
     def __init__(self,
+        rootUrl: str,
         sourceDir: Path,
         templateDir: Path,
         outputDir: Path,
@@ -40,6 +41,8 @@ class BuildTool(BaseTool):
         # Setup
         super().__init__()
 
+        # Assign properties
+        self.rootUrl = rootUrl.rstrip("/")
         self.sourceDir = sourceDir.absolute()
         self.templateDir = templateDir.absolute()
         self.outputDir = outputDir.absolute()
@@ -78,9 +81,10 @@ class BuildTool(BaseTool):
         Returns an instance of this tool.
         """
         return cls(
-            sourceDir=config.get("build", "sourceDirectory"),
-            templateDir=config.get("build", "templateDirectory"),
-            outputDir=config.get("build", "outputDirectory"),
+            rootUrl=config.get("build", "rootUrl"),
+            sourceDir=Path(config.get("build", "sourceDirectory")),
+            templateDir=Path(config.get("build", "templateDirectory")),
+            outputDir=Path(config.get("build", "outputDirectory")),
             copyBlacklist=tuple(config.get("build", "blacklist")),
         )
 
@@ -121,6 +125,8 @@ class BuildTool(BaseTool):
         # Report
         print("Templates registered.")
 
+        # TODO: Update the `site.webmanifest` file
+
         # Render the content to output
         for contentFile in tqdm(tuple(self.sourceDir.glob("*.html")), desc="Rendering content", unit="file"):
             # Build the payload
@@ -128,7 +134,7 @@ class BuildTool(BaseTool):
                 "rootUrl": self.rootUrl,
                 "pagePath": str(contentFile.relative_to(self.sourceDir)),
                 "cacheVersion": datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d%H%M%S"),
-                **self.socialLinks.dict()
+                # **self.socialLinks.dict() # TODO: Reimplement social links support
             }
 
             # Get the template
@@ -142,7 +148,7 @@ class BuildTool(BaseTool):
 
             # Write the rendered HTML to the output directory
             with open(self.outputDir / contentFile.name, "w") as f:
-                f.write(html)
+                f.write(html) # TODO: Minify HTML and remove comments
 
         # Report
         print("Content rendered.")

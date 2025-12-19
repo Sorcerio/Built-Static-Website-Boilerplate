@@ -1,5 +1,6 @@
 # Static Website Builder Configuration
 [build]
+rootUrl = "https://www.example.com"
 sourceDirectory = "./content/"
 templateDirectory = "./templates/"
 outputDirectory = "./static/"

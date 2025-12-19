@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Template Page{% endblock %}</title>
+
+    <!-- NOTE: Enable fonts as required. -->
+    <!-- <link rel="preload" as="font" href="style/YOUR_FONT.ttf" type="font/ttf" crossorigin> -->
+
+    <link rel="stylesheet" href="style/style.css?v={{ cacheVersion }}">
+
+    <!-- NOTE: Favicons images can be generated using [RealFaviconGenerator](https://realfavicongenerator.net) with the `Favicon path` set to `images/favicon/`. -->
+    <link rel="icon" type="image/png" href="images/favicon/favicon-96x96.png?v={{ cacheVersion }}" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="images/favicon/favicon.svg?v={{ cacheVersion }}" />
+    <link rel="shortcut icon" href="images/favicon/favicon.ico?v={{ cacheVersion }}" />
+    <link rel="apple-touch-icon" sizes="180x180" href="images/favicon/apple-touch-icon.png?v={{ cacheVersion }}" />
+    <meta name="apple-mobile-web-app-title" content="{% block titleShort %}TP{% endblock %}" />
+    <link rel="manifest" href="images/favicon/site.webmanifest?v={{ cacheVersion }}" />
+
+    <meta property="og:title" content="{{ self.title() }}">
+    <meta property="og:description" content="{% block pageDesc %}Welcome to the Template Page.{% endblock %}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ rootUrl }}/{{ pagePath }}">
+    <meta property="og:image" content="{{ rootUrl }}/images/banner.png?v={{ cacheVersion }}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ self.title() }}">
+    <meta name="twitter:description" content="{{ self.pageDesc() }}">
+    <meta name="twitter:image" content="{{ rootUrl }}/images/banner.png?v={{ cacheVersion }}">
+</head>
+<body id="{% block bodyId %}generic{% endblock %}">
+    <!-- NOTE: Enable global navigation as required. -->
+    <!-- <nav id="nav"></nav> -->
+
+    <main id="content">
+        {% block content -%}
+        <p>Page Under Construction</p>
+        {%- endblock %}
+    </main>
+
+    <!-- NOTE: Enable global footer as required. -->
+    <!-- <footer id="footer"></footer> -->
+</body>
+</html>
