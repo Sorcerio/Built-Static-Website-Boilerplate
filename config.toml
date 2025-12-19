@@ -20,6 +20,7 @@ blacklist = [
 [attributions.example] # A document section with a unique key.
 category = "Examples" # Category name for grouping the documents like "Fonts", "Privacy Policies", etc.
 title = "Example License"
+link = "https://www.example.com"
 file = "ExampleLicense.md" # Path of the license file or the name of the file in the `./content/attributions/` directory.
 
 [socialMedia] # Optional

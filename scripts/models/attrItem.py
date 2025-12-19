@@ -16,6 +16,7 @@ class AttrItem:
     # Properties
     category: str
     title: str
+    link: str
     filePath: Path
 
     # Functions
@@ -29,5 +30,6 @@ class AttrItem:
         return {
             "category": self.category,
             "title": self.title,
+            "link": self.link,
             "filePath": str(self.filePath)
         }

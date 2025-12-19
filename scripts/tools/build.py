@@ -122,9 +122,10 @@ class BuildTool(BaseTool):
 
             # Build it
             attrItems.append(AttrItem(
-                data.get("category", ""),
-                data.get("title", ""),
-                filePath
+                category=data.get("category", ""),
+                title=data.get("title", ""),
+                link=data.get("link", ""),
+                filePath=filePath
             ))
 
         # Send it
