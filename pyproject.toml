@@ -1,0 +1,7 @@
+[project]
+name = "staticwebsitetemplate"
+version = "0.1.0"
+description = "Tools for building templated website layouts into a static website using Python."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = []
