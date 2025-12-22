@@ -173,11 +173,8 @@ class BuildTool(BaseTool):
         # Prepare the Jinja2 environment
         env = self._prepJinjaEnv()
 
-        # Build HTML files
-        self._buildHtmlFiles(env)
-
-        # Copy static assets
-        self._copyStaticAssets()
+        # Process all files
+        self._processFiles(env)
 
         # Update the site.webmanifest
         self._updateSiteWebManifest()
@@ -234,57 +231,79 @@ class BuildTool(BaseTool):
             **self.overrides # Overrides last to take precedence
         }
 
-    def _buildHtmlFiles(self, env: jinja2.Environment):
+    def _processFiles(self, env: jinja2.Environment, root: Optional[Path] = None):
         """
-        Builds HTML files from templates in the given Jinja2 `env`.
+        Processes all files in the input directory as appropriate for their file type.
 
         env: The Jinja2 environment containing the templates.
+        root: The root directory to start searching for HTML files within. Provide `None` to use the source directory.
         """
-        # Render the content to output
-        for contentFile in tqdm(tuple(self.sourceDir.glob("*.html")), desc="Rendering content", unit="file"):
-            # Build the payload
-            payload = self._getStandardJinjaPayload(contentFile)
+        # Determine the roots
+        if root is None:
+            rootInput = self.sourceDir
+        else:
+            rootInput = root.absolute()
 
-            # Get the template
-            template = env.get_template(
-                name=contentFile.name,
-                globals=payload
-            )
+        rootOutput = (self.outputDir / rootInput.relative_to(self.sourceDir)).absolute()
 
-            # Render the template with the content file
-            html = template.render()
+        # Create the output root, if needed
+        rootOutput.mkdir(parents=True, exist_ok=True)
 
-            # Write the rendered HTML to the output directory
-            with open(self.outputDir / contentFile.name, "w") as f:
-                f.write(minify_html.minify(
-                    html,
-                    keep_closing_tags=True,
-                    minify_css=True,
-                    minify_js=True,
-                    remove_processing_instructions=True
-                ))
+        # Walk the input directory
+        for item in tqdm(
+            tuple(rootInput.iterdir()),
+            desc=str(rootInput.relative_to(self.sourceDir.parent)),
+            unit="item"
+        ):
+            # Determine paths
+            inputPath = item.absolute()
+            outputPath = (rootOutput / item.name).absolute()
 
-        # Report
-        print("Content rendered.")
-
-    def _copyStaticAssets(self):
-        """
-        Copies static asset files from the source directory to the output directory, excluding any files or directories in the blacklist.
-        """
-        # Copy other files to output
-        for otherPath in tqdm(tuple(self.sourceDir.glob("*")), desc="Copying other files", unit="file"):
-            # Skip exclusions
-            if (otherPath.suffix.lower() == ".html") or (otherPath.name in self.copyBlacklist):
+            # Decide the action
+            if inputPath.name in self.copyBlacklist:
+                # Skip blacklisted items
                 continue
+            elif inputPath.is_dir():
+                # Recurse into directory
+                self._processFiles(env, root=inputPath)
+                continue
+            elif inputPath.suffix.lower() == ".html":
+                # Construct HTML file
+                # Build the payload
+                payload = self._getStandardJinjaPayload(inputPath)
 
-            # Copy appropriately
-            if otherPath.is_dir():
-                copytree(otherPath, self.outputDir / otherPath.name, dirs_exist_ok=True)
+                # Get the template
+                template = env.get_template(
+                    name=inputPath.relative_to(self.sourceDir).as_posix(),
+                    globals=payload
+                )
+
+                # Render the template with the content file
+                html = template.render()
+
+                # Ensure output directory exists
+                outputPath.parent.mkdir(parents=True, exist_ok=True)
+
+                # Write the rendered HTML to the output directory
+                with open(outputPath, "w", encoding="utf-8") as f:
+                    f.write(minify_html.minify(
+                        html,
+                        keep_closing_tags=True,
+                        minify_css=True,
+                        minify_js=True,
+                        remove_processing_instructions=True
+                    ))
+            elif inputPath.is_file():
+                # Ensure output directory exists
+                outputPath.parent.mkdir(parents=True, exist_ok=True)
+
+                # Copy regular files
+                copy2(inputPath, outputPath)
+
+                # TODO: Add watcher, if specified
             else:
-                copy2(otherPath, self.outputDir / otherPath.name)
-
-        # Report
-        print("Static files copied.")
+                # Report unknown item
+                print(f"Unhandled file system item type at: {inputPath}")
 
     def _updateSiteWebManifest(self):
         """
@@ -306,10 +325,10 @@ class BuildTool(BaseTool):
                 json.dump(manifest, f, indent=2)
 
             # Report
-            print("`site.webmanifest` updated.")
+            print("Favicon 'site.webmanifest' updated.")
         else:
             # Report
-            print("No `site.webmanifest` exists. Skipping update.")
+            print("No favicon 'site.webmanifest' exists. Skipping update.")
 
     def _buildAttributionsPage(self, env: jinja2.Environment):
         """
