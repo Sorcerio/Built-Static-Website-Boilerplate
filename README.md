@@ -41,7 +41,4 @@ To do this:
 
 1. Ensure all changes to your project have been committed to version control.
 1. Download the latest `.zip` release of this template.
-1. Extract the `content/` directory, `config.toml` file, and `README.md` file from *your existing project* to a safe location.
-1. Clear *the rest* of the files in your existing project.
-1. Add all the file except the `content/` directory, `config.toml` file, and `README.md` file from *the most recent release* to your existing project.
-1. Move your `content/` directory, `config.toml` file, and `README.md` file back into your existing project.
+1. Replace the `scripts/` directory, the `uv.lock`, and the `pyproject.toml` files in your project with the ones from the `.zip`.
