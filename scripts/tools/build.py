@@ -4,6 +4,7 @@ Build Tool
 Builds the static site by rendering templates with content.
 """
 # MARK: Imports
+import time
 import json
 import shutil
 import webbrowser
@@ -11,15 +12,83 @@ import datetime
 import argparse
 from typing import Optional, Any
 from pathlib import Path
-from shutil import copytree, copy2
+from shutil import copy2
 
 import jinja2
 import minify_html
 from tqdm import tqdm
+from watchdog.events import FileSystemEvent, FileSystemEventHandler, FileModifiedEvent
+from watchdog.observers import Observer
 
 from .baseTool import BaseTool
 from ..config import Config
 from ..models import AttrItem
+
+# MARK: - Static File Synchronization Watcher
+class _SFSyncWatcher(FileSystemEventHandler):
+    """
+    Watches for changes in static files in the project's output directory and writes them back to the source directory.
+    """
+    # Initializer
+    def __init__(self, watchDir: Path, resultDir: Path, bufferDelay: float):
+        """
+        watchDir: The directory that changes could occur in and should be synced back to the `resultDir`.
+        resultDir: The directory that changes should be written back to when they occur in the `watchDir`.
+        bufferDelay: The delay in seconds to buffer events to avoid duplicate processing and repeated events.
+        """
+        # Setup
+        super().__init__()
+
+        # Properties
+        self.watchDir: Path = watchDir.absolute()
+        self.resultDir: Path = resultDir.absolute()
+        self.bufferDelay: float = bufferDelay # seconds
+        self.events: dict[FileSystemEvent, float] = {} # { event: timestamp }
+
+    # Functions
+    def on_modified(self, event: FileModifiedEvent):
+        # Check if the event is already buffered
+        currentTime = time.time()
+        if event in self.events:
+            lastTime = self.events[event]
+            if (currentTime - lastTime) < self.bufferDelay:
+                # Still in buffer delay, ignore
+                return
+
+        # Record the event time
+        self.events[event] = currentTime
+
+        # Determine event's source path
+        srcPath = Path(event.src_path).absolute()
+
+        # Make sure there's no destination path
+        # Only process files that are modified *in place*!
+        # If files are moved and such in the build output, then the build needs to be rebuilt!
+        if str(event.dest_path).strip() != "":
+            # Report
+            print(f"File was moved, renamed, or otherwise modified outside of its content. Make the change in your source directory and rebuild the site output!\nIgnoring change at: {srcPath}")
+            return
+
+        # Make sure the file is in the watchDir
+        if not srcPath.is_relative_to(self.watchDir):
+            # Report
+            print(f"Received a `FileModifiedEvent` for a file outside the watch directory. Build system may be setup incorrectly!\nIgnoring change at: {srcPath}")
+            return
+
+        # Determine paired file path in resultDir
+        pairedFilePath = self.resultDir / srcPath.relative_to(self.watchDir)
+
+        # Make sure the paired file is in the resultDir
+        if not pairedFilePath.exists():
+            # Report
+            print(f"Paired file does not exist in the build output directory. Verify the file exists in your source directory and rebuild the site output!\nIgnoring change at: {srcPath}")
+            return
+
+        # Do the copy back to the resultDir
+        copy2(srcPath, pairedFilePath)
+
+        # Report
+        print(f"Synchronized: {pairedFilePath.relative_to(self.resultDir.parent)}")
 
 # MARK: - BuildTool
 class BuildTool(BaseTool):
@@ -41,7 +110,8 @@ class BuildTool(BaseTool):
         attributions: list[AttrItem] = [],
         copyBlacklist: tuple[str, ...] = tuple(),
         socialLinks: dict[str, str] = {},
-        overrides: dict[str, Any] = {}
+        overrides: dict[str, Any] = {},
+        staticSync: bool = False
     ):
         """
         name: The name of the website as a whole like `"My Blog"`.
@@ -54,6 +124,7 @@ class BuildTool(BaseTool):
         copyBlacklist: A tuple of file or directory names to exclude from copying.
         socialLinks: A dictionary of social media links to include in the site like `{"substack": "https://mbmcloude.substack.com"}`.
         overrides: A dictionary of additional or override `key:value` pairs to include in the template rendering context. These will override any other values with the same key.
+        staticSync: Whether to watch for changes in the build output's static files' content and write them back to the source directory automatically. Changes made in the source directory will still require a rebuild to be reflected in the output.
         """
         # Setup
         super().__init__()
@@ -69,6 +140,11 @@ class BuildTool(BaseTool):
         self.copyBlacklist = copyBlacklist
         self.socialLinks = socialLinks
         self.overrides = overrides
+
+        self._doStaticSync = staticSync
+        self._staticSyncDelay: float = 1.0 # TODO: Make configurable?
+        self._sfChangeHandler: Optional[_SFSyncWatcher] = None
+        self._sfChangeObserver = None
 
         # Make output directory
         self.outputDir.mkdir(parents=True, exist_ok=True)
@@ -86,10 +162,14 @@ class BuildTool(BaseTool):
 
         # Add optional arguments
         parser.add_argument(
-            "-o",
-            "--open",
+            "-o", "--open",
             action="store_true",
             help="Open the index page in the default web browser after building."
+        )
+        parser.add_argument(
+            "-s", "--sync",
+            action="store_true",
+            help=f"Watch for changes in the the build output's (`{Path(config.get('build', 'outputDirectory')).name}/`) static files' content and writes them back to the source directory (`{Path(config.get('build', 'sourceDirectory')).name}/`) automatically. Changes made in the source directory will still require a rebuild to be reflected in the output."
         )
 
     @classmethod
@@ -139,7 +219,8 @@ class BuildTool(BaseTool):
             attributions=attrItems,
             copyBlacklist=tuple(config.get("build", "blacklist")),
             socialLinks=config.getDict((str, ), "socialMedia", fallback={}),
-            overrides=config.getDict(None, "overrides", fallback={})
+            overrides=config.getDict(None, "overrides", fallback={}),
+            staticSync=args.sync
         )
 
     def _run(self, args: argparse.Namespace, config: Optional[Config]):
@@ -173,11 +254,11 @@ class BuildTool(BaseTool):
         # Prepare the Jinja2 environment
         env = self._prepJinjaEnv()
 
-        # Build HTML files
-        self._buildHtmlFiles(env)
+        # Process all files
+        self._processFiles(env)
 
-        # Copy static assets
-        self._copyStaticAssets()
+        # Report
+        print("Files processed.")
 
         # Update the site.webmanifest
         self._updateSiteWebManifest()
@@ -188,8 +269,13 @@ class BuildTool(BaseTool):
         # Generate sitemap.xml
         self._buildSitemap(env)
 
-        # Final report
+        # Report
         print(f"Built to: {self.outputDir}")
+
+        # Check if synchronization is desired
+        if self._doStaticSync:
+            print("")
+            self._startStaticFileSyncWatcher()
 
     # MARK: Internal Functions
     def _prepJinjaEnv(self) -> jinja2.Environment:
@@ -234,57 +320,77 @@ class BuildTool(BaseTool):
             **self.overrides # Overrides last to take precedence
         }
 
-    def _buildHtmlFiles(self, env: jinja2.Environment):
+    def _processFiles(self, env: jinja2.Environment, root: Optional[Path] = None):
         """
-        Builds HTML files from templates in the given Jinja2 `env`.
+        Processes all files in the input directory as appropriate for their file type.
 
         env: The Jinja2 environment containing the templates.
+        root: The root directory to start searching for HTML files within. Provide `None` to use the source directory.
         """
-        # Render the content to output
-        for contentFile in tqdm(tuple(self.sourceDir.glob("*.html")), desc="Rendering content", unit="file"):
-            # Build the payload
-            payload = self._getStandardJinjaPayload(contentFile)
+        # Determine the roots
+        if root is None:
+            rootInput = self.sourceDir
+        else:
+            rootInput = root.absolute()
 
-            # Get the template
-            template = env.get_template(
-                name=contentFile.name,
-                globals=payload
-            )
+        rootOutput = (self.outputDir / rootInput.relative_to(self.sourceDir)).absolute()
 
-            # Render the template with the content file
-            html = template.render()
+        # Create the output root, if needed
+        rootOutput.mkdir(parents=True, exist_ok=True)
 
-            # Write the rendered HTML to the output directory
-            with open(self.outputDir / contentFile.name, "w") as f:
-                f.write(minify_html.minify(
-                    html,
-                    keep_closing_tags=True,
-                    minify_css=True,
-                    minify_js=True,
-                    remove_processing_instructions=True
-                ))
+        # Walk the input directory
+        for item in tqdm(
+            tuple(rootInput.iterdir()),
+            desc=str(rootInput.relative_to(self.sourceDir.parent)),
+            unit="item"
+        ):
+            # Determine paths
+            inputPath = item.absolute()
+            outputPath = (rootOutput / item.name).absolute()
 
-        # Report
-        print("Content rendered.")
-
-    def _copyStaticAssets(self):
-        """
-        Copies static asset files from the source directory to the output directory, excluding any files or directories in the blacklist.
-        """
-        # Copy other files to output
-        for otherPath in tqdm(tuple(self.sourceDir.glob("*")), desc="Copying other files", unit="file"):
-            # Skip exclusions
-            if (otherPath.suffix.lower() == ".html") or (otherPath.name in self.copyBlacklist):
+            # Decide the action
+            if inputPath.name in self.copyBlacklist:
+                # Skip blacklisted items
                 continue
+            elif inputPath.is_dir():
+                # Recurse into directory
+                self._processFiles(env, root=inputPath)
+                continue
+            elif inputPath.suffix.lower() == ".html":
+                # Construct HTML file
+                # Build the payload
+                payload = self._getStandardJinjaPayload(inputPath)
 
-            # Copy appropriately
-            if otherPath.is_dir():
-                copytree(otherPath, self.outputDir / otherPath.name, dirs_exist_ok=True)
+                # Get the template
+                template = env.get_template(
+                    name=inputPath.relative_to(self.sourceDir).as_posix(),
+                    globals=payload
+                )
+
+                # Render the template with the content file
+                html = template.render()
+
+                # Ensure output directory exists
+                outputPath.parent.mkdir(parents=True, exist_ok=True)
+
+                # Write the rendered HTML to the output directory
+                with open(outputPath, "w", encoding="utf-8") as f:
+                    f.write(minify_html.minify(
+                        html,
+                        keep_closing_tags=True,
+                        minify_css=True,
+                        minify_js=True,
+                        remove_processing_instructions=True
+                    ))
+            elif inputPath.is_file():
+                # Ensure output directory exists
+                outputPath.parent.mkdir(parents=True, exist_ok=True)
+
+                # Copy regular files
+                copy2(inputPath, outputPath)
             else:
-                copy2(otherPath, self.outputDir / otherPath.name)
-
-        # Report
-        print("Static files copied.")
+                # Report unknown item
+                print(f"Unhandled file system item type at: {inputPath}")
 
     def _updateSiteWebManifest(self):
         """
@@ -306,10 +412,10 @@ class BuildTool(BaseTool):
                 json.dump(manifest, f, indent=2)
 
             # Report
-            print("`site.webmanifest` updated.")
+            print("Favicon 'site.webmanifest' updated.")
         else:
             # Report
-            print("No `site.webmanifest` exists. Skipping update.")
+            print("No favicon 'site.webmanifest' exists. Skipping update.")
 
     def _buildAttributionsPage(self, env: jinja2.Environment):
         """
@@ -394,3 +500,42 @@ class BuildTool(BaseTool):
         # Write the rendered XML to the output directory
         with open(self.outputDir / sitemapPath.name, "w") as f:
             f.write(xml)
+
+    def _startStaticFileSyncWatcher(self):
+        """
+        Starts the static file synchronization watcher to monitor changes in the output directory and write them back to the source directory.
+        """
+        # Report
+        print("Waiting for static file changes...")
+        print("Press CTRL+C to stop.\n")
+
+        # Create the change handler
+        self._sfChangeHandler = _SFSyncWatcher(
+            watchDir=self.outputDir,
+            resultDir=self.sourceDir,
+            bufferDelay=self._staticSyncDelay
+        )
+
+        # Create the observer
+        self._sfChangeObserver = Observer()
+        self._sfChangeObserver.schedule(
+            self._sfChangeHandler,
+            str(self.outputDir),
+            recursive=True,
+            event_filter=[FileModifiedEvent]
+        )
+
+        # Start observing
+        self._sfChangeObserver.start()
+
+        # Enter listening loop
+        try:
+            while True:
+                time.sleep(self._staticSyncDelay)
+        except KeyboardInterrupt:
+            # Exit on CTRL+C
+            pass
+        finally:
+            # Clean up
+            self._sfChangeObserver.stop()
+            self._sfChangeObserver.join()
