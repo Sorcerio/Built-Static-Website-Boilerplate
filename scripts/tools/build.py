@@ -388,8 +388,6 @@ class BuildTool(BaseTool):
 
                 # Copy regular files
                 copy2(inputPath, outputPath)
-
-                # TODO: Add watcher, if specified
             else:
                 # Report unknown item
                 print(f"Unhandled file system item type at: {inputPath}")
