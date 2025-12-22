@@ -4,6 +4,7 @@ Build Tool
 Builds the static site by rendering templates with content.
 """
 # MARK: Imports
+import time
 import json
 import shutil
 import webbrowser
@@ -11,15 +12,25 @@ import datetime
 import argparse
 from typing import Optional, Any
 from pathlib import Path
-from shutil import copytree, copy2
+from shutil import copy2
 
 import jinja2
 import minify_html
 from tqdm import tqdm
+from watchdog.events import FileSystemEvent, FileSystemEventHandler, FileModifiedEvent
+from watchdog.observers import Observer
 
 from .baseTool import BaseTool
 from ..config import Config
 from ..models import AttrItem
+
+# MARK: - Static File Synchronization Watcher
+class _SFSyncWatcher(FileSystemEventHandler):
+    """
+    Watches for changes in static files in the output directory and writes them back to the source directory.
+    """
+    def on_modified(self, event: FileModifiedEvent):
+        print(type(event), " ", event)
 
 # MARK: - BuildTool
 class BuildTool(BaseTool):
@@ -41,7 +52,8 @@ class BuildTool(BaseTool):
         attributions: list[AttrItem] = [],
         copyBlacklist: tuple[str, ...] = tuple(),
         socialLinks: dict[str, str] = {},
-        overrides: dict[str, Any] = {}
+        overrides: dict[str, Any] = {},
+        staticSync: bool = False
     ):
         """
         name: The name of the website as a whole like `"My Blog"`.
@@ -54,6 +66,7 @@ class BuildTool(BaseTool):
         copyBlacklist: A tuple of file or directory names to exclude from copying.
         socialLinks: A dictionary of social media links to include in the site like `{"substack": "https://mbmcloude.substack.com"}`.
         overrides: A dictionary of additional or override `key:value` pairs to include in the template rendering context. These will override any other values with the same key.
+        staticSync: Whether to watch for changes in the static files and write them back to the source directory automatically.
         """
         # Setup
         super().__init__()
@@ -69,6 +82,10 @@ class BuildTool(BaseTool):
         self.copyBlacklist = copyBlacklist
         self.socialLinks = socialLinks
         self.overrides = overrides
+
+        self._doStaticSync = staticSync
+        self._sfChangeHandler: Optional[_SFSyncWatcher] = None
+        self._sfChangeObserver = None
 
         # Make output directory
         self.outputDir.mkdir(parents=True, exist_ok=True)
@@ -86,10 +103,14 @@ class BuildTool(BaseTool):
 
         # Add optional arguments
         parser.add_argument(
-            "-o",
-            "--open",
+            "-o", "--open",
             action="store_true",
             help="Open the index page in the default web browser after building."
+        )
+        parser.add_argument(
+            "-s", "--sync",
+            action="store_true",
+            help="Watch for changes in the static files and write them back to the source directory automatically."
         )
 
     @classmethod
@@ -139,7 +160,8 @@ class BuildTool(BaseTool):
             attributions=attrItems,
             copyBlacklist=tuple(config.get("build", "blacklist")),
             socialLinks=config.getDict((str, ), "socialMedia", fallback={}),
-            overrides=config.getDict(None, "overrides", fallback={})
+            overrides=config.getDict(None, "overrides", fallback={}),
+            staticSync=args.sync
         )
 
     def _run(self, args: argparse.Namespace, config: Optional[Config]):
@@ -176,6 +198,9 @@ class BuildTool(BaseTool):
         # Process all files
         self._processFiles(env)
 
+        # Report
+        print("Files processed.")
+
         # Update the site.webmanifest
         self._updateSiteWebManifest()
 
@@ -185,8 +210,12 @@ class BuildTool(BaseTool):
         # Generate sitemap.xml
         self._buildSitemap(env)
 
-        # Final report
+        # Report
         print(f"Built to: {self.outputDir}")
+
+        # Check if synchronization is desired
+        if self._doStaticSync:
+            self._startStaticFileSyncWatcher()
 
     # MARK: Internal Functions
     def _prepJinjaEnv(self) -> jinja2.Environment:
@@ -413,3 +442,38 @@ class BuildTool(BaseTool):
         # Write the rendered XML to the output directory
         with open(self.outputDir / sitemapPath.name, "w") as f:
             f.write(xml)
+
+    def _startStaticFileSyncWatcher(self):
+        """
+        Starts the static file synchronization watcher to monitor changes in the output directory and write them back to the source directory.
+        """
+        # Report
+        print("Waiting for static file changes...")
+        print("Press CTRL+C to stop.")
+
+        # Create the change handler
+        self._sfChangeHandler = _SFSyncWatcher()
+
+        # Create the observer
+        self._sfChangeObserver = Observer()
+        self._sfChangeObserver.schedule(
+            self._sfChangeHandler,
+            str(self.outputDir),
+            recursive=True,
+            event_filter=[FileModifiedEvent]
+        )
+
+        # Start observing
+        self._sfChangeObserver.start()
+
+        # Enter listening loop
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            # Exit on CTRL+C
+            pass
+        finally:
+            # Clean up
+            self._sfChangeObserver.stop()
+            self._sfChangeObserver.join()
