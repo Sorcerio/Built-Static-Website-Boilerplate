@@ -27,10 +27,68 @@ from ..models import AttrItem
 # MARK: - Static File Synchronization Watcher
 class _SFSyncWatcher(FileSystemEventHandler):
     """
-    Watches for changes in static files in the output directory and writes them back to the source directory.
+    Watches for changes in static files in the project's output directory and writes them back to the source directory.
     """
+    # Initializer
+    def __init__(self, watchDir: Path, resultDir: Path, bufferDelay: float):
+        """
+        watchDir: The directory that changes could occur in and should be synced back to the `resultDir`.
+        resultDir: The directory that changes should be written back to when they occur in the `watchDir`.
+        bufferDelay: The delay in seconds to buffer events to avoid duplicate processing and repeated events.
+        """
+        # Setup
+        super().__init__()
+
+        # Properties
+        self.watchDir: Path = watchDir.absolute()
+        self.resultDir: Path = resultDir.absolute()
+        self.bufferDelay: float = bufferDelay # seconds
+        self.events: dict[FileSystemEvent, float] = {} # { event: timestamp }
+
+    # Functions
     def on_modified(self, event: FileModifiedEvent):
-        print(type(event), " ", event)
+        # Check if the event is already buffered
+        currentTime = time.time()
+        if event in self.events:
+            lastTime = self.events[event]
+            if (currentTime - lastTime) < self.bufferDelay:
+                # Still in buffer delay, ignore
+                return
+
+        # Record the event time
+        self.events[event] = currentTime
+
+        # Determine event's source path
+        srcPath = Path(event.src_path).absolute()
+
+        # Make sure there's no destination path
+        # Only process files that are modified *in place*!
+        # If files are moved and such in the build output, then the build needs to be rebuilt!
+        if str(event.dest_path).strip() != "":
+            # Report
+            print(f"File was moved, renamed, or otherwise modified outside of its content. Make the change in your source directory and rebuild the site output!\nIgnoring change at: {srcPath}")
+            return
+
+        # Make sure the file is in the watchDir
+        if not srcPath.is_relative_to(self.watchDir):
+            # Report
+            print(f"Received a `FileModifiedEvent` for a file outside the watch directory. Build system may be setup incorrectly!\nIgnoring change at: {srcPath}")
+            return
+
+        # Determine paired file path in resultDir
+        pairedFilePath = self.resultDir / srcPath.relative_to(self.watchDir)
+
+        # Make sure the paired file is in the resultDir
+        if not pairedFilePath.exists():
+            # Report
+            print(f"Paired file does not exist in the build output directory. Verify the file exists in your source directory and rebuild the site output!\nIgnoring change at: {srcPath}")
+            return
+
+        # Do the copy back to the resultDir
+        copy2(srcPath, pairedFilePath)
+
+        # Report
+        print(f"Synchronized: {pairedFilePath.relative_to(self.resultDir.parent)}")
 
 # MARK: - BuildTool
 class BuildTool(BaseTool):
@@ -66,7 +124,7 @@ class BuildTool(BaseTool):
         copyBlacklist: A tuple of file or directory names to exclude from copying.
         socialLinks: A dictionary of social media links to include in the site like `{"substack": "https://mbmcloude.substack.com"}`.
         overrides: A dictionary of additional or override `key:value` pairs to include in the template rendering context. These will override any other values with the same key.
-        staticSync: Whether to watch for changes in the static files and write them back to the source directory automatically.
+        staticSync: Whether to watch for changes in the build output's static files' content and write them back to the source directory automatically. Changes made in the source directory will still require a rebuild to be reflected in the output.
         """
         # Setup
         super().__init__()
@@ -84,6 +142,7 @@ class BuildTool(BaseTool):
         self.overrides = overrides
 
         self._doStaticSync = staticSync
+        self._staticSyncDelay: float = 1.0 # TODO: Make configurable?
         self._sfChangeHandler: Optional[_SFSyncWatcher] = None
         self._sfChangeObserver = None
 
@@ -110,7 +169,7 @@ class BuildTool(BaseTool):
         parser.add_argument(
             "-s", "--sync",
             action="store_true",
-            help="Watch for changes in the static files and write them back to the source directory automatically."
+            help=f"Watch for changes in the the build output's (`{Path(config.get('build', 'outputDirectory')).name}/`) static files' content and writes them back to the source directory (`{Path(config.get('build', 'sourceDirectory')).name}/`) automatically. Changes made in the source directory will still require a rebuild to be reflected in the output."
         )
 
     @classmethod
@@ -215,6 +274,7 @@ class BuildTool(BaseTool):
 
         # Check if synchronization is desired
         if self._doStaticSync:
+            print("")
             self._startStaticFileSyncWatcher()
 
     # MARK: Internal Functions
@@ -449,10 +509,14 @@ class BuildTool(BaseTool):
         """
         # Report
         print("Waiting for static file changes...")
-        print("Press CTRL+C to stop.")
+        print("Press CTRL+C to stop.\n")
 
         # Create the change handler
-        self._sfChangeHandler = _SFSyncWatcher()
+        self._sfChangeHandler = _SFSyncWatcher(
+            watchDir=self.outputDir,
+            resultDir=self.sourceDir,
+            bufferDelay=self._staticSyncDelay
+        )
 
         # Create the observer
         self._sfChangeObserver = Observer()
@@ -469,7 +533,7 @@ class BuildTool(BaseTool):
         # Enter listening loop
         try:
             while True:
-                time.sleep(1)
+                time.sleep(self._staticSyncDelay)
         except KeyboardInterrupt:
             # Exit on CTRL+C
             pass
