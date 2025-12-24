@@ -51,5 +51,13 @@ class OpenTool(BaseTool):
         args: The parser arguments to create the tool from.
         config: The config manager to use for the tool.
         """
+        # Get the path
+        homePath = Path(config.get("build", "outputDirectory")).absolute() / "index.html"
+
+        # Check if it exists
+        if not homePath.is_file():
+            print("Error: The static site has not been built yet. Please run the `build` tool first.")
+            return
+
         # Just open the thing
-        webbrowser.open(str(Path(config.get("build", "outputDirectory")).absolute() / "index.html"))
+        webbrowser.open(str(homePath))
