@@ -17,78 +17,11 @@ from shutil import copy2
 import jinja2
 import minify_html
 from tqdm import tqdm
-from watchdog.events import FileSystemEvent, FileSystemEventHandler, FileModifiedEvent
-from watchdog.observers import Observer
 
+from .sync import SyncTool
 from .baseTool import BaseTool
 from ..config import Config
 from ..models import AttrItem
-
-# MARK: - Static File Synchronization Watcher
-class _SFSyncWatcher(FileSystemEventHandler):
-    """
-    Watches for changes in static files in the project's output directory and writes them back to the source directory.
-    """
-    # Initializer
-    def __init__(self, watchDir: Path, resultDir: Path, bufferDelay: float):
-        """
-        watchDir: The directory that changes could occur in and should be synced back to the `resultDir`.
-        resultDir: The directory that changes should be written back to when they occur in the `watchDir`.
-        bufferDelay: The delay in seconds to buffer events to avoid duplicate processing and repeated events.
-        """
-        # Setup
-        super().__init__()
-
-        # Properties
-        self.watchDir: Path = watchDir.absolute()
-        self.resultDir: Path = resultDir.absolute()
-        self.bufferDelay: float = bufferDelay # seconds
-        self.events: dict[FileSystemEvent, float] = {} # { event: timestamp }
-
-    # Functions
-    def on_modified(self, event: FileModifiedEvent):
-        # Check if the event is already buffered
-        currentTime = time.time()
-        if event in self.events:
-            lastTime = self.events[event]
-            if (currentTime - lastTime) < self.bufferDelay:
-                # Still in buffer delay, ignore
-                return
-
-        # Record the event time
-        self.events[event] = currentTime
-
-        # Determine event's source path
-        srcPath = Path(event.src_path).absolute()
-
-        # Make sure there's no destination path
-        # Only process files that are modified *in place*!
-        # If files are moved and such in the build output, then the build needs to be rebuilt!
-        if str(event.dest_path).strip() != "":
-            # Report
-            print(f"File was moved, renamed, or otherwise modified outside of its content. Make the change in your source directory and rebuild the site output!\nIgnoring change at: {srcPath}")
-            return
-
-        # Make sure the file is in the watchDir
-        if not srcPath.is_relative_to(self.watchDir):
-            # Report
-            print(f"Received a `FileModifiedEvent` for a file outside the watch directory. Build system may be setup incorrectly!\nIgnoring change at: {srcPath}")
-            return
-
-        # Determine paired file path in resultDir
-        pairedFilePath = self.resultDir / srcPath.relative_to(self.watchDir)
-
-        # Make sure the paired file is in the resultDir
-        if not pairedFilePath.exists():
-            # Report
-            print(f"Paired file does not exist in the build output directory. Verify the file exists in your source directory and rebuild the site output!\nIgnoring change at: {srcPath}")
-            return
-
-        # Do the copy back to the resultDir
-        copy2(srcPath, pairedFilePath)
-
-        # Report
-        print(f"Synchronized: {pairedFilePath.relative_to(self.resultDir.parent)}")
 
 # MARK: - BuildTool
 class BuildTool(BaseTool):
@@ -140,11 +73,7 @@ class BuildTool(BaseTool):
         self.copyBlacklist = copyBlacklist
         self.socialLinks = socialLinks
         self.overrides = overrides
-
-        self._doStaticSync = staticSync
-        self._staticSyncDelay: float = 1.0 # TODO: Make configurable?
-        self._sfChangeHandler: Optional[_SFSyncWatcher] = None
-        self._sfChangeObserver = None
+        self.doStaticSync = staticSync
 
         # Make output directory
         self.outputDir.mkdir(parents=True, exist_ok=True)
@@ -273,7 +202,7 @@ class BuildTool(BaseTool):
         print(f"Built to: {self.outputDir}")
 
         # Check if synchronization is desired
-        if self._doStaticSync:
+        if self.doStaticSync:
             print("")
             self._startStaticFileSyncWatcher()
 
@@ -505,37 +434,9 @@ class BuildTool(BaseTool):
         """
         Starts the static file synchronization watcher to monitor changes in the output directory and write them back to the source directory.
         """
-        # Report
-        print("Waiting for static file changes...")
-        print("Press CTRL+C to stop.\n")
-
-        # Create the change handler
-        self._sfChangeHandler = _SFSyncWatcher(
+        # Create the syncing tool
+        self._syncTool = SyncTool(
             watchDir=self.outputDir,
-            resultDir=self.sourceDir,
-            bufferDelay=self._staticSyncDelay
+            resultDir=self.sourceDir
         )
-
-        # Create the observer
-        self._sfChangeObserver = Observer()
-        self._sfChangeObserver.schedule(
-            self._sfChangeHandler,
-            str(self.outputDir),
-            recursive=True,
-            event_filter=[FileModifiedEvent]
-        )
-
-        # Start observing
-        self._sfChangeObserver.start()
-
-        # Enter listening loop
-        try:
-            while True:
-                time.sleep(self._staticSyncDelay)
-        except KeyboardInterrupt:
-            # Exit on CTRL+C
-            pass
-        finally:
-            # Clean up
-            self._sfChangeObserver.stop()
-            self._sfChangeObserver.join()
+        self._syncTool.watch()
